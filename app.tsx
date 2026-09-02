@@ -43,6 +43,48 @@ function isTldrawDevelopmentOrigin() {
   return protocol === "https:" && loopback;
 }
 
+/** Shown instead of the editor when tldraw cannot legally run on this origin.
+ * `reason` distinguishes "no key at all" from "tldraw rejected the key". */
+function LicenseNotice({ reason }: { reason: "missing" | "rejected" }) {
+  const host = typeof window === "undefined" ? "this origin" : window.location.hostname;
+  return (
+    <div className="mx-auto flex h-full max-w-sm flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
+      <p className="font-medium text-foreground">Canvas needs a tldraw license here</p>
+      {reason === "missing" ? (
+        <p>
+          tldraw is free on local origins, but you are on{" "}
+          <span className="font-mono">{host}</span>, which tldraw treats as
+          production. It would hide the editor a few seconds after it loaded, so the
+          canvas is not started here.
+        </p>
+      ) : (
+        <p>
+          tldraw rejected the configured license key for{" "}
+          <span className="font-mono">{host}</span> — keys are tied to the hosts they
+          were issued for, and they expire.
+        </p>
+      )}
+      <p>
+        A{" "}
+        <a
+          className="underline"
+          href="https://tldraw.dev/get-a-license/hobby"
+          target="_blank"
+          rel="noreferrer"
+        >
+          free hobby licence
+        </a>{" "}
+        covers non-commercial use (with a "made with tldraw" watermark). Register{" "}
+        <span className="font-mono">{host}</span> as the domain, then run:
+      </p>
+      <code className="rounded bg-muted px-2 py-1 text-xs text-foreground">
+        bb plugin config canvas set tldrawLicenseKey "…"
+      </code>
+      <p>Your diagrams are stored locally and are not lost — open BB on the machine itself to keep drawing.</p>
+    </div>
+  );
+}
+
 function CanvasPanel({ threadId }: { threadId: string; params: unknown }) {
   const rpc = useRpc<typeof rpcContract>();
   const editorRef = useRef<Editor | null>(null);
@@ -62,6 +104,10 @@ function CanvasPanel({ threadId }: { threadId: string; params: unknown }) {
   // after the batch was applied.
   const [animation, setAnimation] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  // Set when tldraw swaps the editor for its hidden license gate: the key we
+  // passed was not valid for this origin.
+  const [licenseRejected, setLicenseRejected] = useState(false);
+  const frame = useRef<HTMLDivElement | null>(null);
   const clientId = useRef(
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
@@ -282,6 +328,28 @@ function CanvasPanel({ threadId }: { threadId: string; params: unknown }) {
     }
   }, [animation, playing, play, scheduleSave]);
 
+  // A key can still be wrong: issued for another host, or expired. tldraw
+  // reacts by replacing the editor with a hidden element ~5s in, which looks
+  // exactly like the bug we just fixed. Watch for that element and explain.
+  useEffect(() => {
+    if (!initial?.licenseKey || isTldrawDevelopmentOrigin()) return;
+    let stop = false;
+    const deadline = Date.now() + 15000;
+    const tick = () => {
+      if (stop) return;
+      if (frame.current?.querySelector('[data-testid="tl-license-expired"]')) {
+        setLicenseRejected(true);
+        return;
+      }
+      if (Date.now() < deadline) setTimeout(tick, 500);
+    };
+    const timer = setTimeout(tick, 500);
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+  }, [initial?.licenseKey]);
+
   if (!initial) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -294,23 +362,12 @@ function CanvasPanel({ threadId }: { threadId: string; params: unknown }) {
   // editor for five seconds and then hide it, and would report this page's
   // URL to tldraw. Say so instead. Everything already drawn is safe in the
   // plugin's database and shows up as soon as you open BB locally or add a key.
-  if (!initial.licenseKey && !isTldrawDevelopmentOrigin()) {
-    return (
-      <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
-        <p className="font-medium text-foreground">Canvas needs a tldraw license here</p>
-        <p>
-          tldraw is free on local origins, but this BB is served from{" "}
-          <span className="font-mono">{window.location.hostname}</span>, which tldraw
-          treats as production. Open this thread from a local BB, or add a license key
-          in the Canvas plugin settings.
-        </p>
-        <p>Your diagrams are stored locally and are not lost.</p>
-      </div>
-    );
+  if (!isTldrawDevelopmentOrigin() && (!initial.licenseKey || licenseRejected)) {
+    return <LicenseNotice reason={initial.licenseKey ? "rejected" : "missing"} />;
   }
 
   return (
-    <div className="h-full w-full" style={{ position: "relative" }}>
+    <div className="h-full w-full" ref={frame} style={{ position: "relative" }}>
       <Tldraw
         key={threadId}
         onMount={handleMount}
