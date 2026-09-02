@@ -62,8 +62,27 @@ bb plugin config canvas set suggestEverywhere true
 - `canvas-read.ts` — turns a stored snapshot into text an agent can read.
 - `skills/canvas/SKILL.md` — how agents are taught to use all of the above.
 
-Everything stays on your machine: the canvas lives in this plugin's local
-database and the plugin makes no network requests.
+## Data and network
+
+Your diagrams stay on your machine: every canvas lives in this plugin's local
+SQLite database (`<bb data dir>/plugins/canvas/data.db`) and is never uploaded.
+The plugin itself has no server of its own and sends nothing anywhere.
+
+The bundled tldraw editor does make requests, and you should know about them:
+
+- **Editor assets** — tldraw loads its fonts, icons, translations and embed
+  icons from `https://cdn.tldraw.com/<tldraw-version>/…` whenever the panel is
+  open. These are plain static asset requests; they carry no canvas content,
+  but like any request they expose your IP address and the tldraw version to
+  that CDN. There is currently no way to turn this off short of self-hosting
+  the asset bundle.
+- **Usage reporting** — tldraw pings `cdn.tldraw.com/watermarks/watermark-track.svg`
+  with the page URL, tldraw version, environment and license id when it is
+  running unlicensed in production, on an evaluation license, or licensed with
+  a watermark. On a local BB (`http://…` or loopback) tldraw is in development
+  mode and this never fires. On a non-local https origin, this panel refuses to
+  mount the editor unless you have configured a license key, so it does not
+  fire there either — see below.
 
 ## Licensing
 
@@ -76,3 +95,19 @@ use and modify it for development, and it may be bundled inside another
 application, but production use requires a license from tldraw, and the
 "made with tldraw" watermark must stay in place. If you are using this
 commercially, talk to [tldraw](https://tldraw.dev) about a license.
+
+What that means in practice: tldraw treats `http://` origins and https on
+loopback as development and runs for free. Any other origin — for example a BB
+you reach over a shared https URL — is "production", and an unlicensed editor
+there is replaced by a hidden element five seconds after it loads. Rather than
+let the canvas silently vanish, this panel detects that case and shows an
+explanation instead of mounting tldraw at all. If you have a key, set it:
+
+```sh
+bb plugin config canvas set tldrawLicenseKey "tldraw-…"
+```
+
+The key is a signed, origin-bound token that tldraw intends to ship in client
+bundles, so the panel receives it like any other setting. Be aware that a
+licensed-with-watermark or evaluation key re-enables tldraw's usage reporting
+described above.

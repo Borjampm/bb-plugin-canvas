@@ -18,6 +18,10 @@ export const rpcContract = defineRpcContract({
       appliedRev: z.number(),
       /** The last spec with `steps`, replayable from the panel. */
       animation: z.string().nullable(),
+      /** tldraw license key from settings, or null when unset. Not a secret:
+       * tldraw keys are signed, origin-bound tokens meant to ship in the
+       * client bundle. */
+      licenseKey: z.string().nullable(),
     }),
   },
   canvas_save_snapshot: {
@@ -67,10 +71,26 @@ export default async function plugin(bb: BbPluginApi) {
         "and /canvas still explains how to use them.",
       default: false,
     },
+    // tldraw is free for local/development use but requires a license for
+    // production origins. BB served remotely over https is a production
+    // origin as far as tldraw is concerned, so without a key here the panel
+    // refuses to mount the editor rather than let tldraw hide it after five
+    // seconds. See README "Licensing".
+    tldrawLicenseKey: {
+      type: "string",
+      label: "tldraw license key",
+      description:
+        "Only needed when you open BB over a non-local https origin (a shared or " +
+        "remote BB). Leave empty for local use — tldraw is free there. Get a key at " +
+        "tldraw.dev. Note: a licensed editor reports usage to cdn.tldraw.com.",
+      default: "",
+    },
   });
   let suggestEverywhere = (await settings.get()).suggestEverywhere;
+  let tldrawLicenseKey = (await settings.get()).tldrawLicenseKey;
   settings.onChange((next) => {
     suggestEverywhere = next.suggestEverywhere;
+    tldrawLicenseKey = next.tldrawLicenseKey;
   });
 
   // configure() selects what this plugin contributes per session, so the tools
@@ -124,6 +144,7 @@ export default async function plugin(bb: BbPluginApi) {
         pending,
         appliedRev: row?.appliedRev ?? 0,
         animation: row?.animation ?? null,
+        licenseKey: tldrawLicenseKey ? String(tldrawLicenseKey) : null,
       };
     },
     canvas_save_snapshot({ threadId, snapshot, clientId }) {
