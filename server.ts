@@ -47,7 +47,7 @@ const NUDGE =
   "When a visual explanation helps (architecture, control flow, data flow, plans), " +
   "prefer the canvas_draw tool over ASCII/Mermaid. Omit node x/y and let auto-layout " +
   "place them. Call canvas_read before editing a diagram that already exists. After " +
-  'drawing, put `::tldraw-canvas{title="..."}` on its own line so the user gets an ' +
+  'drawing, put `::canvas{title="..."}` on its own line so the user gets an ' +
   "open-canvas button.";
 
 export default async function plugin(bb: BbPluginApi) {
@@ -213,7 +213,7 @@ export default async function plugin(bb: BbPluginApi) {
         (nodeIds.size
           ? `Node ids on canvas: ${[...nodeIds].join(", ")}. `
           : "") +
-        'Now include `::tldraw-canvas{title="..."}` on its own line in your reply so the user can open the canvas.'
+        'Now include `::canvas{title="..."}` on its own line in your reply so the user can open the canvas.'
       );
     },
   });

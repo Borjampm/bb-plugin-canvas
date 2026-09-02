@@ -337,7 +337,7 @@ export default definePluginApp((app) => {
     component: CanvasPanel,
   });
   app.slots.messageDirective({
-    id: "tldraw-canvas",
+    id: "canvas",
     component: OpenCanvasDirective,
   });
 });

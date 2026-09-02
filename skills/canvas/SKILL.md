@@ -68,7 +68,7 @@ Call it before touching an existing diagram, whenever the user says "this box", 
 Always put this directive on its own line in your reply so the user gets an open button:
 
 ```
-::tldraw-canvas{title="Short diagram title"}
+::canvas{title="Short diagram title"}
 ```
 
 The canvas persists per thread and the user can edit it; treat their edits as part of the shared state (do not clear without being asked).
