@@ -8,7 +8,7 @@ import { drawSpecSchema } from "./spec";
 type Rec = Record<string, unknown>;
 
 /** tldraw stores labels as a TipTap document; pull the plain text out. */
-function plainText(rich: unknown): string {
+export function plainText(rich: unknown): string {
   if (typeof rich === "string") return rich;
   if (!rich || typeof rich !== "object") return "";
   const node = rich as Rec;
@@ -28,6 +28,37 @@ function round(n: unknown): number {
 function specId(shapeId: string, kind: string): string | null {
   const prefix = `shape:${kind}-`;
   return shapeId.startsWith(prefix) ? shapeId.slice(prefix.length) : null;
+}
+
+/** Ids of every shape record in a saved snapshot (empty when unreadable). */
+export function snapshotShapeIds(snapshot: string | null): Set<string> {
+  const ids = new Set<string>();
+  if (!snapshot) return ids;
+  try {
+    const parsed = JSON.parse(snapshot) as Rec;
+    const doc = (parsed.document ?? parsed) as Rec;
+    const store = (doc.store ?? doc) as Rec;
+    for (const rec of Object.values(store)) {
+      if (rec && typeof rec === "object" && (rec as Rec).typeName === "shape") {
+        ids.add(String((rec as Rec).id ?? ""));
+      }
+    }
+  } catch {
+    // corrupt snapshot: treat as empty
+  }
+  return ids;
+}
+
+/** Lines telling the agent about overlapping shapes, or nothing when clean. */
+export function describeLint(lint: string[] | null | undefined): string[] {
+  if (!lint || lint.length === 0) return [];
+  return [
+    "",
+    `Overlapping shapes (${lint.length}):`,
+    ...lint.map((l) => `- ${l}`),
+    "Fix them: re-send the overlapping node ids with clear:true to redraw the whole " +
+      "diagram, or give them explicit x/y away from the shapes they collide with.",
+  ];
 }
 
 function describeSpecs(pending: { rev: number; spec: string }[]): string[] {
@@ -52,6 +83,7 @@ function describeSpecs(pending: { rev: number; spec: string }[]): string[] {
 export function describeCanvas(
   snapshot: string | null,
   pending: { rev: number; spec: string }[],
+  lint: string[] | null = null,
 ): string {
   const queued = pending.length > 0
     ? [
@@ -173,6 +205,7 @@ export function describeCanvas(
   if (shapes.length === 0) {
     sections.push("", "The board is currently blank.");
   }
+  sections.push(...describeLint(lint));
   sections.push(...queued);
   return sections.join("\n");
 }

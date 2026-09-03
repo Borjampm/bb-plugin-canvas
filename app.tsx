@@ -8,15 +8,12 @@ import {
   useRealtimeConnectionState,
   useRpc,
 } from "@get-bb/plugin-sdk/app";
-import {
-  Tldraw,
-  getSnapshot,
-  loadSnapshot,
-  type Editor,
-} from "tldraw";
+import { Tldraw, loadSnapshot, type Editor } from "tldraw";
 import "tldraw/tldraw.css";
 import { Button } from "@/components/ui/button";
 import { applyDrawSpec } from "./canvas-apply";
+import { registerHeadlessRenderer } from "./headless";
+import { persistCanvas } from "./persist";
 import { playDrawSpec } from "./animate";
 import { drawSpecSchema, type DrawSpec } from "./spec";
 import type { rpcContract } from "./server";
@@ -187,18 +184,15 @@ function CanvasPanel({ threadId }: { threadId: string; params: unknown }) {
       if (saveTimer.current) clearTimeout(saveTimer.current);
       const save = () => {
         pendingSave.current = null;
-        try {
-          // Document only: the session (camera, selection) is per-device
-          // state and must never travel between clients.
-          const { document } = getSnapshot(editor.store);
-          void rpc.call("canvas_save_snapshot", {
-            threadId,
-            snapshot: JSON.stringify({ document }),
-            clientId: clientId.current,
-          });
-        } catch {
-          // editor already disposed during teardown: nothing to flush
-        }
+        // Snapshot (document only: camera/selection are per-device), overlap
+        // lint and the PNG for canvas_view. Errors mean the editor was already
+        // disposed during teardown: nothing to flush.
+        void persistCanvas(
+          editor,
+          (method, input) => rpc.call(method as never, input as never),
+          threadId,
+          clientId.current,
+        ).catch(() => {});
       };
       pendingSave.current = save;
       saveTimer.current = setTimeout(save, 800);
@@ -291,6 +285,9 @@ function CanvasPanel({ threadId }: { threadId: string; params: unknown }) {
   const handleMount = useCallback(
     (editor: Editor) => {
       editorRef.current = editor;
+      // Plain scroll zooms (tldraw's default pans and needs ctrl/cmd to
+      // zoom). Trackpad pinch still zooms and two-finger drag still pans.
+      editor.setCameraOptions({ wheelBehavior: "zoom" });
       if (initial?.snapshot) {
         try {
           const parsed = JSON.parse(initial.snapshot);
@@ -441,4 +438,7 @@ export default definePluginApp((app) => {
     id: "canvas",
     component: OpenCanvasDirective,
   });
+  // Renders queued batches while no panel is open, so agents' drawings and
+  // canvas_view images stay current whenever any bb window is open.
+  registerHeadlessRenderer(app);
 });

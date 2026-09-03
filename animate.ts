@@ -51,8 +51,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Every shape mentioned anywhere in the batch, so layout runs once up front. */
-function mergedSpec(spec: DrawSpec): DrawSpec {
+/** Every shape mentioned anywhere in the batch, so layout runs once up front.
+ * Also the timeline's final state, which is what a headless render draws. */
+export function mergedSpec(spec: DrawSpec): DrawSpec {
   const nodes = new Map((spec.nodes ?? []).map((n) => [n.id, n]));
   const texts = new Map((spec.texts ?? []).map((t) => [t.id, t]));
   const edges = new Map((spec.edges ?? []).map((e) => [edgeKey(e), e]));

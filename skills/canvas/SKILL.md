@@ -1,6 +1,6 @@
 ---
 name: canvas
-description: Draw and read live boxes-and-arrows diagrams on the thread's shared tldraw canvas with the canvas_draw and canvas_read tools. Use when a visual explanation helps — architecture overviews, control or data flow, sequence of calls, refactor plans, system maps — or when the user says "show me", "draw", "diagram", or "visualize".
+description: Draw, read and look at live boxes-and-arrows diagrams on the thread's shared tldraw canvas with the canvas_draw, canvas_read and canvas_view tools. Use when a visual explanation helps — architecture overviews, control or data flow, sequence of calls, refactor plans, system maps — or when the user says "show me", "draw", "diagram", or "visualize".
 ---
 
 Use the `canvas_draw` tool to explain things visually on this thread's shared, editable canvas. Prefer it over ASCII art or Mermaid when the topic is boxes and arrows: components, services, flows, dependencies, plans.
@@ -11,14 +11,25 @@ Use the `canvas_draw` tool to explain things visually on this thread's shared, e
 - `edges`: `{ from, to, label?, color?, dashed? }` — connects node ids with arrows bound to the shapes (they follow when the user drags nodes).
 - `texts`: `{ id, text, x?, y?, size? }` — free-floating labels and headings (`size`: `s m l xl`). Leave `x`/`y` off: unpositioned text stacks above the finished diagram, which is what you want for a title. You cannot guess a safe coordinate, because you do not know where auto-layout will put the boxes.
 - `layout`: `auto` (default), `lr`, `tb`, or `none` — see below.
-- `clear: true` wipes the canvas first. Omit it to update incrementally.
+- `clear: true` wipes the canvas first. Use it whenever the new drawing *replaces* what is there. Omit it only when you are extending the diagram already on the board.
 - `steps`: an optional animated walkthrough — see below.
+
+## One diagram, one call
+
+Send the whole diagram in a single `canvas_draw` call, not one call per box. Where a batch lands depends on its node ids:
+
+- **All ids are new** → it is a *separate* diagram and is placed below everything already on the canvas, left-aligned with it. If you meant to replace the previous drawing, pass `clear: true` instead of stacking diagrams down the page.
+- **Some ids already exist** → it is an *extension* of that diagram: existing nodes stay where they are (including where the user dragged them) and the new nodes are laid out around them.
+- `layout: "lr"` / `"tb"` over ids that already exist re-flows that diagram in place.
+
+Whether extending or replacing, keep one topic per canvas. A thread that explains three unrelated things should `clear` between them, or the board becomes a pile.
 
 ## Layout
 
 Prefer auto-layout: **omit `x` and `y`** and the nodes are placed in layers that follow the edges (each node one layer after its deepest predecessor), left→right by default. `layout: "tb"` flows top→bottom. Both `lr` and `tb` re-lay-out every node in the batch; `auto` only places nodes that have no coordinates and are not already on the canvas.
 
 - Auto-layout anchors on nodes that already exist, so adding a node to a live diagram slots it in rather than shifting everything the user has arranged.
+- Auto-layout only knows about the nodes in the batch. It will not route around shapes the user drew by hand or a different diagram, so when adding to a crowded board, call `canvas_read` first and pass `clear: true` or explicit `x`/`y` if needed.
 - Set `x`/`y` yourself only when the picture is not a flow (a quadrant chart, a map, free annotation) — or use `layout: "none"` to opt out entirely.
 - Default box is 180×70. When placing by hand, ~250px horizontal and ~150px vertical between box origins reads well.
 - Keep labels short (1–4 words). Boxes grow to fit their text, so a long label produces a fat box that crowds its neighbours.
@@ -59,13 +70,26 @@ Animation is viewer-local: only the state the timeline ends in is saved and sync
 
 ## Reading the canvas
 
-`canvas_read` returns what is on the board right now: node ids, labels, colors, sizes and positions, the arrows between them, floating text, and anything the user drew or moved by hand.
+`canvas_read` returns what is on the board right now: node ids, labels, colors, sizes and positions, the arrows between them, floating text, anything the user drew or moved by hand, and an **Overlapping shapes** list when any shapes sit on top of each other.
 
 Call it before touching an existing diagram, whenever the user says "this box", "what I added", or "move that", and after asking them to mark something up. The canvas is shared and editable, so their arrangement is state you should build on, not overwrite.
 
+Overlaps are the main way a canvas turns unreadable. If `canvas_draw` or `canvas_read` reports them, fix them in your next call: redraw the diagram with `clear: true`, or move the offending nodes with explicit `x`/`y`. Do not leave a known overlap on the board.
+
+## Looking at the canvas
+
+`canvas_view` returns a PNG of the whole board. Any open bb window keeps it fresh: the canvas panel if it is open, otherwise a hidden renderer that applies your batches within a few seconds, and the tool waits for that before answering. Use it:
+
+- **After drawing**, to check the result the way the user will see it: do arrows cross boxes, is the flow readable, did a long label make a fat box? Fix what you see with another `canvas_draw`.
+- When the user talks about something they drew or arranged by hand and the text from `canvas_read` is not enough.
+
+If `canvas_view` reports batches still queued after its wait, no bb window is connected right now; the picture predates your drawing and you should ask the user to open bb. Node ids are not drawn on the picture, so pair it with `canvas_read` when you need to address a specific node.
+
 ## After drawing
 
-Always put this directive on its own line in your reply so the user gets an open button:
+**Look before you answer.** Call `canvas_view` after every `canvas_draw`; it waits for the render, so you can call it immediately. Check the picture the way the user will see it: overlapping shapes, labels that wrap or clip, arrows running through boxes, a flow that reads in the wrong direction, a title sitting on top of the diagram. Fix problems with another `canvas_draw` (usually `clear: true` plus the corrected spec, or shorter labels) and look again. One round of fixing is normal; do not ship a diagram you have not seen.
+
+Then put this directive on its own line in your reply so the user gets an open button:
 
 ```
 ::canvas{title="Short diagram title"}

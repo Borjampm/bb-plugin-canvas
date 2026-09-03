@@ -20,9 +20,18 @@ board.
   down an arrow and narrates each beat. Playback is local to whoever is
   watching; only the finished diagram is saved. The panel keeps a **Replay**
   button.
+- **Diagrams do not pile up.** A batch whose node ids are all new is placed
+  below whatever is already on the board; a batch that re-sends existing ids
+  slots its new nodes in next to them. Agents are told which of the two just
+  happened, and to use `clear: true` when a drawing is meant to replace the
+  last one.
+- **Agents can look at it.** `canvas_view` returns a PNG of the board so an
+  agent can check its own drawing the way you see it. The panel exports one
+  every time it saves; when no panel is open, a hidden renderer in any open bb
+  window applies queued batches and exports the image within a few seconds.
 - **Agents read it back.** `canvas_read` returns what is on the board right
-  now — including the shapes *you* added or moved — so a diagram is a
-  conversation rather than a one-way render.
+  now — including the shapes *you* added or moved, and a list of any shapes
+  that overlap — so a diagram is a conversation rather than a one-way render.
 
 ## Install
 
@@ -53,11 +62,17 @@ bb plugin config canvas set suggestEverywhere true
 ## How it fits together
 
 - `server.ts` — queues each drawing batch per thread in the plugin's SQLite
-  database, stores the canvas snapshot, registers the `canvas_draw` and
-  `canvas_read` agent tools, and publishes realtime signals.
+  database, stores the canvas snapshot, registers the `canvas_draw`,
+  `canvas_read` and `canvas_view` agent tools, and publishes realtime signals.
 - `app.tsx` — the panel: a tldraw editor that applies queued batches, saves
   snapshots back, and reconciles concurrent edits from other clients.
+- `headless.tsx` — a content script that keeps an off-screen tldraw editor in
+  every bb window and renders queued batches for threads whose panel is closed.
+- `persist.ts` — what both renderers save: the document, the overlap lint and
+  the PNG for `canvas_view`.
 - `layout.ts` — the layered auto-layout that places nodes and sizes boxes.
+- `canvas-lint.ts` — finds overlapping shapes after every change; the result is
+  saved with the snapshot and reported back to agents.
 - `animate.ts` — timeline playback (steps, camera, pulses, flow dots, loops).
 - `canvas-read.ts` — turns a stored snapshot into text an agent can read.
 - `skills/canvas/SKILL.md` — how agents are taught to use all of the above.

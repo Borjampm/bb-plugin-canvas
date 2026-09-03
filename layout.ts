@@ -44,7 +44,23 @@ export type LayoutResult = {
   texts: Map<string, Placed>;
   /** Chosen size for every node in the spec. */
   sizes: Map<string, Size>;
+  /**
+   * True when the placed nodes/texts were positioned relative to nodes that
+   * already had a position (explicit x/y, or already on the canvas). False
+   * means the layout is free-floating around the origin and the caller must
+   * decide where on the canvas it goes.
+   */
+  anchored: boolean;
 };
+
+/** Rough footprint of a floating text shape, for collision/placement math. */
+export function estimateTextSize(text: { text: string; size?: "s" | "m" | "l" | "xl" }): Size {
+  const lineH = { s: 26, m: 34, l: 46, xl: 64 }[text.size ?? "m"];
+  const charW = lineH * 0.55;
+  const lines = text.text.split("\n");
+  const longest = Math.max(1, ...lines.map((l) => l.length));
+  return { w: Math.min(900, longest * charW + 16), h: lines.length * lineH + 8 };
+}
 
 /** Greedy word wrap; returns the number of lines a label needs at width `w`. */
 function lineCount(label: string, w: number, charW: number): number {
@@ -180,7 +196,7 @@ export function layoutSpec(spec: DrawSpec, known: KnownNodes): LayoutResult {
   const sizes = new Map<string, Size>(
     nodes.map((n) => [n.id, estimateNodeSize(n)]),
   );
-  const result: LayoutResult = { nodes: new Map(), texts: new Map(), sizes };
+  const result: LayoutResult = { nodes: new Map(), texts: new Map(), sizes, anchored: false };
 
   const mode = spec.layout ?? "auto";
   if (mode === "none") return result;
@@ -306,6 +322,7 @@ export function layoutSpec(spec: DrawSpec, known: KnownNodes): LayoutResult {
     }
     dx = Math.round(dx / anchored.length);
     dy = Math.round(dy / anchored.length);
+    result.anchored = true;
   }
 
   for (const id of free) {

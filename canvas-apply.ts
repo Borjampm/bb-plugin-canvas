@@ -9,6 +9,7 @@ import {
 } from "tldraw";
 import {
   estimateNodeSize,
+  estimateTextSize,
   layoutSpec,
   type KnownNodes,
   type LayoutResult,
@@ -205,7 +206,99 @@ export function buildLayout(
       if (shape) known.set(text.id, { x: shape.x, y: shape.y });
     }
   }
-  return layoutSpec(spec, known);
+  const result = layoutSpec(spec, known);
+  if (!cleared) placeInFreeSpace(editor, spec, result);
+  return result;
+}
+
+/** Vertical gap between an existing region of the canvas and a new diagram. */
+const REGION_GAP = 200;
+
+type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
+
+function extend(b: Bounds | null, x: number, y: number, w: number, h: number): Bounds {
+  if (!b) return { minX: x, minY: y, maxX: x + w, maxY: y + h };
+  b.minX = Math.min(b.minX, x);
+  b.minY = Math.min(b.minY, y);
+  b.maxX = Math.max(b.maxX, x + w);
+  b.maxY = Math.max(b.maxY, y + h);
+  return b;
+}
+
+/** Every shape id a spec owns, so its own shapes never count as obstacles. */
+function ownedShapeIds(spec: DrawSpec): Set<string> {
+  const ids = new Set<string>();
+  for (const n of spec.nodes ?? []) ids.add(nodeShapeId(n.id));
+  for (const e of spec.edges ?? []) ids.add(edgeShapeId(edgeKey(e)));
+  for (const t of spec.texts ?? []) ids.add(textShapeId(t.id));
+  return ids;
+}
+
+/**
+ * A layout with no anchors floats around the origin, which is exactly where
+ * the previous diagram already sits. Move it somewhere empty instead:
+ *
+ * - If this batch re-lays-out a diagram that is already on the canvas
+ *   (`layout: "lr" | "tb"` over existing ids), keep its top-left corner where
+ *   the old diagram started, so a re-flow does not send it flying.
+ * - Otherwise it is a new diagram on a non-empty canvas: put it below
+ *   everything that is already there, left-aligned with it.
+ *
+ * Anchored layouts are left alone; the anchors already say where they go.
+ */
+export function placeInFreeSpace(editor: Editor, spec: DrawSpec, result: LayoutResult) {
+  if (result.anchored) return;
+  if (result.nodes.size === 0 && result.texts.size === 0) return;
+
+  let fresh: Bounds | null = null;
+  const nodeById = new Map((spec.nodes ?? []).map((n) => [n.id, n]));
+  for (const [id, pos] of result.nodes) {
+    const size = result.sizes.get(id) ?? estimateNodeSize(nodeById.get(id)!);
+    fresh = extend(fresh, pos.x, pos.y, size.w, size.h);
+  }
+  const textById = new Map((spec.texts ?? []).map((t) => [t.id, t]));
+  for (const [id, pos] of result.texts) {
+    const size = estimateTextSize(textById.get(id)!);
+    fresh = extend(fresh, pos.x, pos.y, size.w, size.h);
+  }
+  if (!fresh) return;
+
+  const owned = ownedShapeIds(spec);
+  let occupied: Bounds | null = null;
+  let previous: Bounds | null = null;
+  for (const id of editor.getCurrentPageShapeIds()) {
+    const b = editor.getShapePageBounds(id);
+    if (!b) continue;
+    if (owned.has(id)) {
+      // Shapes this batch is about to redraw: remember where they were.
+      previous = extend(previous, b.minX, b.minY, b.width, b.height);
+    } else {
+      occupied = extend(occupied, b.minX, b.minY, b.width, b.height);
+    }
+  }
+
+  let dx: number;
+  let dy: number;
+  if (previous) {
+    dx = previous.minX - fresh.minX;
+    dy = previous.minY - fresh.minY;
+  } else if (occupied) {
+    dx = occupied.minX - fresh.minX;
+    dy = occupied.maxY + REGION_GAP - fresh.minY;
+  } else {
+    return; // empty canvas: the origin is fine
+  }
+  dx = Math.round(dx);
+  dy = Math.round(dy);
+  if (dx === 0 && dy === 0) return;
+  for (const pos of result.nodes.values()) {
+    pos.x += dx;
+    pos.y += dy;
+  }
+  for (const pos of result.texts.values()) {
+    pos.x += dx;
+    pos.y += dy;
+  }
 }
 
 export function applyDrawSpec(editor: Editor, spec: DrawSpec) {
